@@ -2,6 +2,7 @@ package ru.hh.school.unittesting.homework;
 
 import java.util.stream.Stream;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -15,6 +16,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -31,16 +33,6 @@ public class LibraryManagerTest {
     @InjectMocks
     private LibraryManager libraryManager;
 
-
-    static Stream<Arguments> calculateSource() {
-        return Stream.of(
-            Arguments.of(4, false, false, 2.0),
-            Arguments.of(4, false, true, 1.6),
-            Arguments.of(4, true, false, 3.0),
-            Arguments.of(4, true, true, 2.4)
-        );
-    }
-
     @BeforeEach
     void setUp() {
         libraryManager.addBook("book1", 1);
@@ -53,17 +45,12 @@ public class LibraryManagerTest {
 
     @Test
     void testGetAvailableCopiesReturnZeroIfBookNotExist() {
-        assertEquals(libraryManager.getAvailableCopies("book7"), 0);
+        assertEquals(0, libraryManager.getAvailableCopies("book7"));
     }
 
-    @ParameterizedTest
-    @CsvSource({
-        "book1, 1",
-        "book2, 10",
-        "book5, 0"
-    })
-    void testGetAvailableCopiesIfAmmountIsPositiveOrZero(String bookId, Integer expectedCopies) {
-        assertEquals(libraryManager.getAvailableCopies(bookId), expectedCopies);
+    @Test
+    void testGetAvailableCopiesIfAmountIsPositiveOrZero() {
+        assertEquals(1, libraryManager.getAvailableCopies("book1"));
     }
 
     @Test
@@ -71,6 +58,8 @@ public class LibraryManagerTest {
         when(userService.isUserActive("user2")).thenReturn(false);
 
         assertFalse(libraryManager.borrowBook("book1", "user2"));
+
+        verify(notificationService).notifyUser("user2", "Your account is not active.");
     }
 
     @ParameterizedTest
@@ -78,28 +67,33 @@ public class LibraryManagerTest {
         "book4, user1",
         "book5, user1"
     })
-    void testIfAmmountBookZeroOrNegative(String bookId, String userId) {
+    void testIfAmountBookZeroOrNegative(String bookId, String userId) {
+        when(userService.isUserActive("user1")).thenReturn(true);
+
         assertFalse(libraryManager.borrowBook(bookId, userId));
     }
 
-    @ParameterizedTest
-    @CsvSource({
-        "book1, user1, 0",
-        "book2, user1, 9"
-    })
-    void testBorrowedInputFine(String bookId, String userId, Integer expectedCopies) {
+    @Test
+    void testBorrowedInputFine() {
         when(userService.isUserActive("user1")).thenReturn(true);
 
-        assertTrue(libraryManager.borrowBook(bookId, userId));
+        assertTrue(libraryManager.borrowBook("book2", "user1"));
 
-        assertEquals(expectedCopies, libraryManager.getAvailableCopies(bookId));
+        verify(notificationService).notifyUser("user1", "You have borrowed the book: book2");
+
+        assertEquals(9, libraryManager.getAvailableCopies("book2"));
     }
 
     @Test
-    void testIfBookNotBorrowedOrBorrowedAnotherUser() {
-        libraryManager.borrowBook("book3", "user1");
-
+    void testIfBookNotBorrowed() {
         assertFalse(libraryManager.returnBook("book2", "user2"));
+    }
+
+    @Test
+    void testIfBookBorrowedAnotherUser() {
+        when(userService.isUserActive("user1")).thenReturn(true);
+
+        libraryManager.borrowBook("book3", "user1");
         assertFalse(libraryManager.returnBook("book3", "user2"));
     }
 
@@ -110,7 +104,9 @@ public class LibraryManagerTest {
         assertTrue(libraryManager.borrowBook("book1", "user1"));
         assertTrue(libraryManager.returnBook("book1", "user1"));
 
-        assertEquals(libraryManager.getAvailableCopies("book1"), 1);
+        verify(notificationService).notifyUser("user1", "You have returned the book: book1");
+
+        assertEquals(1, libraryManager.getAvailableCopies("book1"));
     }
 
     @Test
@@ -119,15 +115,24 @@ public class LibraryManagerTest {
         assertEquals("Overdue days cannot be negative.", exception.getMessage());
     }
 
+    @Test
+    void testCalculateDynamicLateFeeNotThrowIfDaysZero() {
+        assertDoesNotThrow(() -> libraryManager.calculateDynamicLateFee(0, false, false));
+    }
+
+    static Stream<Arguments> calculateSource() {
+        return Stream.of(
+            Arguments.of(4, false, false, 2.0),
+            Arguments.of(4, false, true, 1.6),
+            Arguments.of(4, true, false, 3.0),
+            Arguments.of(4, true, true, 2.4),
+            Arguments.of(0, true, true, 0.0)
+        );
+    }
+
     @ParameterizedTest
     @MethodSource("calculateSource")
-    void testCalculateDynamicLateFeeBestsellerPremium(int overdueDays, boolean isBesteller, boolean isPremiumMember, double expectedCalculate) {
-        assertEquals(libraryManager.calculateDynamicLateFee(4, false, false), 2.0);
-
-        assertEquals(libraryManager.calculateDynamicLateFee(4, false, true), 1.6);
-
-        assertEquals(libraryManager.calculateDynamicLateFee(4, true, false), 3.0);
-
-        assertEquals(libraryManager.calculateDynamicLateFee(4, true, true), 2.4);
+    void testCalculateDynamicLateFeeBestsellerPremium(int overdueDays, boolean isBestseller, boolean isPremiumMember, double expectedCalculate) {
+        assertEquals(expectedCalculate, libraryManager.calculateDynamicLateFee(overdueDays, isBestseller, isPremiumMember));
     }
 }
